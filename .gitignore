@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.*
+!.env.example
+dist/
+Backend/uploads/
+*.log
+!.env.docker.example
+!.env-example
+*.pem
+*.key
+.next/
+build/
+coverage/

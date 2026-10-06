@@ -169,3 +169,11 @@ nav a:hover {
 .create-post button:hover {
     background-color: #45a049;
 }
+.error {
+    color: #c62828;
+}
+
+.pagination {
+    text-align: center;
+    margin: 20px 0;
+}
