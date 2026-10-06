@@ -1,14 +1,17 @@
-// models/Post.js
-
 const mongoose = require('mongoose');
 
 const postSchema = new mongoose.Schema({
-    title: String,
-    content: String,
-    likes: { type: Number, default: 0 },
-    comments: [{ text: String }],
-});
+    title: { type: String, required: true },
+    content: { type: String, required: true },
+    file: String,
+    author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    // per-user set of likes: one entry per user
+    likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    comments: [{
+        text: { type: String, required: true },
+        author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        date: { type: Date, default: Date.now }
+    }]
+}, { timestamps: true });
 
-const Post = mongoose.model('Post', postSchema);
-
-module.exports = Post;
+module.exports = mongoose.models.Post || mongoose.model('Post', postSchema);
