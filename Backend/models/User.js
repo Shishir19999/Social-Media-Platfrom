@@ -5,9 +5,18 @@ const userSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true, trim: true, minlength: 3, maxlength: 30 },
     email: { type: String, required: true, unique: true, trim: true, lowercase: true },
     password: { type: String, required: true, minlength: 6, select: false },
+    displayName: { type: String, trim: true, maxlength: 50, default: '' },
+    bio: { type: String, trim: true, maxlength: 280, default: '' },
+    avatar: String,
+    cover: String,
+    following: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    bookmarks: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
+    hidden: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
     // Bumped on logout; tokens carry the version they were issued with
     tokenVersion: { type: Number, default: 0 }
 }, { timestamps: true });
+
+userSchema.index({ following: 1 });
 
 userSchema.pre('save', async function () {
     if (!this.isModified('password')) return;

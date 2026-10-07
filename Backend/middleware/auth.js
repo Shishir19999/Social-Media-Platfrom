@@ -43,4 +43,10 @@ async function auth(req, res, next) {
     }
 }
 
-module.exports = { auth, signToken };
+// Like auth, but requests without credentials continue anonymously (public routes with viewer-specific data).
+function optionalAuth(req, res, next) {
+    if (!req.headers.authorization) return next();
+    return auth(req, res, next);
+}
+
+module.exports = { auth, optionalAuth, signToken };

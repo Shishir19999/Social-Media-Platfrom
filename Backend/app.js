@@ -7,7 +7,11 @@ const fs = require('fs');
 const crypto = require('crypto');
 const Post = require('./models/Post');
 const User = require('./models/User');
-const { auth, signToken } = require('./middleware/auth');
+const { auth, optionalAuth, signToken } = require('./middleware/auth');
+const { extractHashtags } = require('./lib/text');
+const { notify, notifyMentions } = require('./lib/notify');
+const { media } = require('./lib/serialize');
+const createSocialRoutes = require('./routes/social');
 
 // Allowed uploads: mimetype -> extension. The extension on disk never comes from the client filename.
 const FILE_TYPES = {
@@ -36,7 +40,13 @@ function corsOptions() {
     return list.length ? { origin: list } : {};
 }
 
-const publicUser = (u) => ({ id: u._id, username: u.username, email: u.email });
+const publicUser = (u) => ({
+    id: u._id,
+    username: u.username,
+    email: u.email,
+    displayName: u.displayName || u.username,
+    avatar: media(u.avatar),
+});
 
 function createApp() {
     const app = express();
@@ -62,7 +72,8 @@ function createApp() {
         storage,
         limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
         fileFilter: (req, file, cb) => {
-            if (!FILE_TYPES[file.mimetype] && !UNKNOWN_MIMES.includes(file.mimetype)) {
+            const imageOnly = file.fieldname !== 'file';
+            if ((imageOnly && file.mimetype === 'application/pdf') || (!FILE_TYPES[file.mimetype] && !UNKNOWN_MIMES.includes(file.mimetype))) {
                 return cb(new Error('Invalid file type, only JPG, PNG, WebP, and PDF are allowed.'));
             }
             cb(null, true);
@@ -77,38 +88,50 @@ function createApp() {
         });
     }
 
-    // upload.single('file') followed by a content (magic number) check; the stored extension
-    // always comes from the sniffed type.
-    const uploadFile = (req, res, next) => {
-        upload.single('file')(req, res, (err) => {
-            if (err) return next(err);
-            if (!req.file) return next();
-            try {
-                const fd = fs.openSync(req.file.path, 'r');
-                const buf = Buffer.alloc(12);
-                const n = fs.readSync(fd, buf, 0, 12, 0);
-                fs.closeSync(fd);
-                const real = sniffMime(buf.subarray(0, n));
-                const declared = req.file.mimetype;
-                if (!real || (FILE_TYPES[declared] && declared !== real)) {
-                    removeUpload(req.file.filename);
-                    req.file = undefined;
-                    return next(new Error('Invalid file type, only JPG, PNG, WebP, and PDF are allowed.'));
-                }
-                const finalName = req.file.filename.replace(/\.[^.]+$/, '') + FILE_TYPES[real];
-                if (finalName !== req.file.filename) {
-                    fs.renameSync(req.file.path, path.join(UPLOADS_DIR, finalName));
-                    req.file.filename = finalName;
-                    req.file.path = path.join(UPLOADS_DIR, finalName);
-                }
-                req.file.mimetype = real;
-            } catch (e) {
-                removeUpload(req.file.filename);
+    // Multer for the given fields followed by a content (magic number) check; the stored extension
+    // always comes from the sniffed type. Fields other than `file` accept images only (no PDF).
+    // On any failure every file of the request is removed. req.file is the first `file` upload.
+    const makeUploader = (fields) => (req, res, next) => {
+        upload.fields(fields)(req, res, (err) => {
+            const files = Object.values(req.files || {}).flat();
+            const abort = (e) => {
+                files.forEach((f) => removeUpload(f.filename));
+                req.files = {};
+                req.file = undefined;
                 return next(e);
+            };
+            if (err) return abort(err);
+            try {
+                for (const f of files) {
+                    const fd = fs.openSync(f.path, 'r');
+                    const buf = Buffer.alloc(12);
+                    const n = fs.readSync(fd, buf, 0, 12, 0);
+                    fs.closeSync(fd);
+                    const real = sniffMime(buf.subarray(0, n));
+                    const declared = f.mimetype;
+                    const imageOnly = f.fieldname !== 'file';
+                    if (!real || (imageOnly && real === 'application/pdf') || (FILE_TYPES[declared] && declared !== real)) {
+                        return abort(new Error('Invalid file type, only JPG, PNG, WebP, and PDF are allowed.'));
+                    }
+                    const finalName = f.filename.replace(/\.[^.]+$/, '') + FILE_TYPES[real];
+                    if (finalName !== f.filename) {
+                        fs.renameSync(f.path, path.join(UPLOADS_DIR, finalName));
+                        f.filename = finalName;
+                        f.path = path.join(UPLOADS_DIR, finalName);
+                    }
+                    f.mimetype = real;
+                }
+            } catch (e) {
+                return abort(e);
             }
+            req.file = req.files && req.files.file ? req.files.file[0] : undefined;
             next();
         });
     };
+    const uploadFile = makeUploader([{ name: 'file', maxCount: 1 }]);
+    const uploadPostFiles = makeUploader([{ name: 'file', maxCount: 1 }, { name: 'images', maxCount: 6 }]);
+    const uploadProfileFiles = makeUploader([{ name: 'avatar', maxCount: 1 }, { name: 'cover', maxCount: 1 }]);
+    const filesOf = (req) => Object.values(req.files || {}).flat();
 
     const POPULATE = [
         { path: 'author', select: 'username' },
@@ -203,22 +226,33 @@ function createApp() {
         }
     });
 
-    app.post('/api/posts', auth, uploadFile, async (req, res) => {
+    app.post('/api/posts', auth, uploadPostFiles, async (req, res) => {
         const file = req.file ? req.file.filename : undefined;
+        const images = ((req.files && req.files.images) || []).map((f) => f.filename);
+        const removeAll = () => [file, ...images].forEach(removeUpload);
         try {
             const { title, content } = req.body || {};
 
-            if (typeof title !== 'string' || typeof content !== 'string' || !title.trim() || !content.trim()) {
-                removeUpload(file);
-                return res.status(400).json({ error: 'Title and content are required fields' });
+            const titleBad = title !== undefined && (typeof title !== 'string' || !title.trim());
+            if (titleBad || typeof content !== 'string' || !content.trim()) {
+                removeAll();
+                return res.status(400).json({ error: 'Content is required, and the title cannot be blank' });
+            }
+            if (content.length > 2000 || (title || '').length > 120) {
+                removeAll();
+                return res.status(400).json({ error: 'Content is limited to 2000 characters and the title to 120' });
             }
 
-            const post = new Post({ title, content, file, author: req.user.id });
+            const post = new Post({
+                title: title || '', content, file, images, author: req.user.id,
+                hashtags: extractHashtags(`${title || ''} ${content}`),
+            });
             await post.save();
+            await notifyMentions(content, req.user.id, post);
             await post.populate(POPULATE);
             res.status(201).json(post);
         } catch (error) {
-            removeUpload(file);
+            removeAll();
             console.error('Error creating post:', error);
             res.status(500).json({ error: 'Internal Server Error' });
         }
@@ -244,6 +278,10 @@ function createApp() {
                 if (typeof content !== 'string' || !content.trim()) { removeUpload(newFile); return res.status(400).json({ error: 'Content cannot be empty' }); }
                 post.content = content;
             }
+            if (title !== undefined || content !== undefined) {
+                post.hashtags = extractHashtags(`${post.title || ''} ${post.content}`);
+                post.editedAt = new Date();
+            }
             let oldFile;
             if (newFile) { oldFile = post.file; post.file = newFile; }
             await post.save();
@@ -267,6 +305,7 @@ function createApp() {
             }
             await post.deleteOne();
             removeUpload(post.file);
+            (post.images || []).forEach(removeUpload);
             res.json({ message: 'Post deleted' });
         } catch (error) {
             console.error('Error deleting post:', error);
@@ -285,6 +324,7 @@ function createApp() {
             if (idx === -1) post.likes.push(req.user.id);
             else post.likes.splice(idx, 1);
             await post.save();
+            if (idx === -1) await notify(post.author, req.user.id, 'like', post, post.content);
             await post.populate(POPULATE);
             res.json(post);
         } catch (error) {
@@ -303,6 +343,7 @@ function createApp() {
 
             post.comments.push({ text, author: req.user.id });
             await post.save();
+            await notify(post.author, req.user.id, 'comment', post, text);
             await post.populate(POPULATE);
             res.json(post);
         } catch (error) {
@@ -310,6 +351,9 @@ function createApp() {
             res.status(500).json({ error: 'Internal Server Error' });
         }
     });
+
+    // ---- Profiles, follows, feeds, comments threads, notifications, search ----
+    app.use('/api', createSocialRoutes({ auth, optionalAuth, uploadPostFiles, uploadProfileFiles, removeUpload, filesOf }));
 
     // Error handler (multer errors such as file too large / invalid type)
     // eslint-disable-next-line no-unused-vars

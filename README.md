@@ -1,14 +1,26 @@
-# Social Media Platform
+# Orbit - Social Media Platform
 
-A small social feed with user accounts: register/login, create posts (title, content, optional JPG/PNG/PDF attachment), edit/delete your own posts, like (toggle) and comment.
+A social network with profiles, following, hashtags and mentions, threaded comments, bookmarks, notifications and search.
 
-**Stack:** React 19 + Vite 8 (Frontend), Express 5 + Mongoose 9 + Multer + JWT + bcryptjs (Backend), MongoDB.
+**Live demo (browser only, no server):** https://shishir19999.github.io/Social-Media-Platfrom/
 
-Requires Node.js 24 LTS (Docker images: node:24, nginx:1.30, mongo:8.0).
+**Stack:** React 19 + Vite 8 (`Frontend/`), Express 5 + Mongoose 9 + Multer + JWT + bcryptjs (`Backend/`), MongoDB. Node.js 24 LTS.
 
-## Setup
+## Features
+- Profiles with avatar, bio, cover image and a post grid; edit your own profile
+- Follow / unfollow; a **Following** feed and an **Explore** feed
+- Posts with up to 6 images and a lightbox; composer with draft autosave and a character counter
+- Clickable `#hashtags` and `@mentions`; trending hashtags sidebar; tag pages
+- Comment threads with replies and likes
+- Likes, bookmarks / saved posts, share (copy link), edit / delete own posts, hide and report other posts
+- Notifications panel and page (likes, comments, replies, mentions, follows)
+- Search across people, posts and hashtags; infinite scroll
+- Light / dark theme (follows the system, remembered), responsive from 320px, keyboard accessible, skeleton / empty / error states with retry, toasts and confirm dialogs
+- Landing and Explore headers and the profile cover use a subtle parallax and scroll-reveal (transform / opacity only, `IntersectionObserver` + `requestAnimationFrame`, no libraries). It is switched off for `prefers-reduced-motion`, small screens (under 720px), data-saver and low-power devices, and is never applied inside the post feed.
+
+## Run the full stack (real mode)
 ```bash
-# Backend
+# Backend (needs MongoDB, default mongodb://localhost:27017)
 cd Backend
 cp .env.example .env     # set JWT_SECRET (required)
 npm install
@@ -16,40 +28,45 @@ npm start                # or: npm run dev
 
 # Frontend
 cd Frontend
-cp .env.example .env
+cp .env.example .env     # VITE_API_URL=http://localhost:5000
 npm install
 npm run dev
 ```
+Optional seed data: `npm run seed` in `Backend` (idempotent) creates users with password `Password123!` (local demo data only) and about 100 posts.
 
-## Seed demo data
-`npm run seed` in `Backend` (idempotent, uses `MONGODB_URI`) creates users `admin@example.com`, `user@example.com`, `alice@example.com`
-(usernames admin/user/alice), all with password `Password123!` (local demo data only), plus 22 more generated users (`<username>@example.com`, same password) and 100 posts in total, backdated over ~120 days, each with per-user likes and 0-8 comments from seeded users (no uploads). Uses `@faker-js/faker` with a fixed seed, so re-running changes nothing.
+## Run the browser-only demo
+The demo swaps the server layer for an in-browser backend (same interface). Seeded users, posts and comments live in `localStorage`; uploaded images are downsized and stored as data URLs; no network requests are made. The app shows a "Demo mode" banner with a **Reset demo data** button.
+```bash
+cd Frontend
+npm run dev:demo         # dev server with the demo backend
+npm run build:pages      # static build for GitHub Pages -> Frontend/dist (base /Social-Media-Platfrom/, hash routing)
+npm run preview:pages    # preview the Pages build
+```
+Demo logins (shown on the login page, password `Password123!`): `alice` (follows people, has notifications and saved posts) and `marcus`. You can also register your own account.
 
 ## Environment variables
-- Backend: `JWT_SECRET` (**required**, server exits without it), `PORT` (default 5000), `MONGODB_URI` (default `mongodb://localhost:27017/socialMediaDB`).
-- Frontend: `VITE_API_URL` (default `http://localhost:5000`).
+- Backend: `JWT_SECRET` (**required**), `PORT` (default 5000), `MONGODB_URI` (default `mongodb://localhost:27017/socialMediaDB`), `CORS_ORIGIN`, `HOST`.
+- Frontend: `VITE_API_URL` (default `http://localhost:5000`), `VITE_DEMO=true` to use the in-browser demo backend.
 
 ## API
-Protected routes need `Authorization: Bearer <token>`.
+Protected routes need `Authorization: Bearer <token>`. Lists are paginated (`page`, `limit`).
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| POST | `/api/auth/register` | no | `{ username, email, password }` (username/email unique, password min 6) returns `{ token, user }` |
-| POST | `/api/auth/login` | no | `{ identifier (email or username), password }` returns `{ token, user }` |
-| GET | `/api/auth/me` | yes | Current user |
-| GET | `/api/posts?page=1&limit=10` | no | Paginated feed (newest first): `{ posts, page, limit, total, pages }` |
-| POST | `/api/posts` | yes | Create post (multipart: `title`, `content`, optional `file`, max 10MB) |
-| PUT | `/api/posts/:postId` | owner | Edit `title`/`content`, optional replacement `file` (old file removed) |
-| DELETE | `/api/posts/:postId` | owner | Delete post and its uploaded file |
-| POST | `/api/posts/like/:postId` | yes | Toggle like for the current user |
-| POST | `/api/posts/comment/:postId` | yes | Comment `{ text }`, author recorded |
-| GET | `/uploads/:file` | no | Uploaded files |
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/auth/register`, `/api/auth/login`, `/api/auth/logout` | Accounts (`logout` revokes the user's tokens) |
+| GET | `/api/auth/me` | Current user |
+| GET | `/api/feed?scope=following\|explore&tag=&author=&saved=1` | Feed |
+| GET / POST / PUT / DELETE | `/api/posts`, `/api/posts/:id` | Read, create (multipart `content`, `images[]`), edit, delete |
+| POST | `/api/posts/:id/like`, `/bookmark`, `/hide`, `/report` | Per-viewer actions |
+| GET / POST | `/api/posts/:id/comments` | Comment thread, add comment or reply (`parentId`) |
+| DELETE / POST | `/api/posts/:id/comments/:cid`, `.../like` | Delete (cascades to replies), like |
+| GET / PUT | `/api/users/:username`, `/api/users/me` | Profile, update (avatar / cover uploads) |
+| POST | `/api/users/:username/follow` | Toggle follow |
+| GET | `/api/users/suggestions`, `/api/trending`, `/api/search?q=` | Discovery |
+| GET / POST | `/api/notifications`, `/api/notifications/read` | Notifications |
+| GET | `/uploads/:file` | Uploaded files (git-ignored, `Backend/uploads/`) |
 
-Uploads are stored in `Backend/uploads/` (created automatically) and are git-ignored.
-
-## Upgrading from the pre-accounts version
-Posts created before accounts have no author and numeric `likes`. They are incompatible with the new schema; clear the `posts` collection (or migrate it) before use.
-
+Uploads accept JPG, PNG and WebP; the type is verified from the file content, not only the mimetype. Older posts created before the accounts version are incompatible; clear the `posts` collection before use.
 
 ## Deploy with Docker
 
