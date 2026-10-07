@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/Social-Media-Platfrom/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orbit - share moments, follow people, join the conversation</title>
+    <meta name="description" content="Orbit is a social network for sharing photos and thoughts, following people, and joining conversations around hashtags." />
+    <meta name="theme-color" content="#f6f7fb" />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Orbit - share moments, follow people, join the conversation" />
+    <meta property="og:description" content="Photo posts, hashtags, mentions, comment threads and a following feed." />
+    <meta name="twitter:card" content="summary" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('orbit_theme');
+          if (t !== 'light' && t !== 'dark') t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          document.documentElement.setAttribute('data-theme', t);
+        } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+      })();
+    </script>
+    <script type="module" crossorigin src="/Social-Media-Platfrom/assets/index-U7rFLGcP.js"></script>
+    <link rel="stylesheet" crossorigin href="/Social-Media-Platfrom/assets/index-DGKVY9qK.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>This app needs JavaScript to run.</noscript>
+  </body>
+</html>
