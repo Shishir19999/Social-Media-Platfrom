@@ -1,71 +1,51 @@
-// App.js
+import { lazy, Suspense } from 'react'
+import { BrowserRouter, HashRouter, Route, Routes } from 'react-router-dom'
+import { DEMO } from './config'
+import AuthProvider from './context/AuthProvider'
+import ConfirmProvider from './context/ConfirmProvider'
+import NotificationsProvider from './context/NotificationsProvider'
+import ThemeProvider from './context/ThemeProvider'
+import ToastProvider from './context/ToastProvider'
+import Layout from './components/Layout'
+import { FeedSkeleton } from './components/States'
+import Auth from './pages/Auth'
+import Explore from './pages/Explore'
+import Home from './pages/Home'
+import { NotFound, NotificationsPage, PostPage, RequireAuth, SavedPage, SearchPage, TagPage } from './pages/Simple'
 
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import Home from './Home';
-import CreatePost from './CreatePost';
-import Login from './Login';
-import Register from './Register';
-import ProtectedRoute from './ProtectedRoute';
-import { AuthProvider, useAuth } from './AuthContext';
-import './App.css';
+const Profile = lazy(() => import('./pages/Profile'))
+const Router = DEMO ? HashRouter : BrowserRouter
 
-function Nav() {
-	const { user, logout } = useAuth();
-	return (
-		<nav>
-			<ul>
-				<li>
-					<Link to="/">Home</Link>
-				</li>
-				{user ? (
-					<>
-						<li>
-							<Link to="/create">Create Post</Link>
-						</li>
-						<li>Signed in as {user.username}</li>
-						<li>
-							<button onClick={logout}>Logout</button>
-						</li>
-					</>
-				) : (
-					<>
-						<li>
-							<Link to="/login">Login</Link>
-						</li>
-						<li>
-							<Link to="/register">Register</Link>
-						</li>
-					</>
-				)}
-			</ul>
-		</nav>
-	);
+export default function App() {
+  return (
+    <ThemeProvider>
+      <ToastProvider>
+        <Router>
+          <ConfirmProvider>
+            <AuthProvider>
+              <NotificationsProvider>
+                <Suspense fallback={<div className="container"><FeedSkeleton count={1} /></div>}>
+                  <Routes>
+                    <Route element={<Layout />}>
+                      <Route index element={<Home />} />
+                      <Route path="explore" element={<Explore />} />
+                      <Route path="login" element={<Auth mode="login" />} />
+                      <Route path="register" element={<Auth mode="register" />} />
+                      <Route path="u/:username" element={<Profile />} />
+                      <Route path="post/:id" element={<PostPage />} />
+                      <Route path="tag/:tag" element={<TagPage />} />
+                      <Route path="search" element={<SearchPage />} />
+                      <Route path="saved" element={<RequireAuth><SavedPage /></RequireAuth>} />
+                      <Route path="notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
+                      <Route path="*" element={<NotFound />} />
+                    </Route>
+                  </Routes>
+                </Suspense>
+              </NotificationsProvider>
+            </AuthProvider>
+          </ConfirmProvider>
+        </Router>
+      </ToastProvider>
+    </ThemeProvider>
+  )
 }
-
-function App() {
-	return (
-		<AuthProvider>
-			<Router>
-				<div className="app">
-					<Nav />
-					<Routes>
-						<Route
-							path="/create"
-							element={
-								<ProtectedRoute>
-									<CreatePost />
-								</ProtectedRoute>
-							}
-						/>
-						<Route path="/login" element={<Login />} />
-						<Route path="/register" element={<Register />} />
-						<Route path="/" element={<Home />} />
-					</Routes>
-				</div>
-			</Router>
-		</AuthProvider>
-	);
-}
-
-export default App;
