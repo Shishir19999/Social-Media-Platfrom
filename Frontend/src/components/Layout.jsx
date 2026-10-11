@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth, useNotifications, useTheme } from '../context/contexts'
+import { isStaff } from '../lib/rules'
 import { DEMO } from '../config'
 import Avatar from './Avatar'
 import { DemoBannerLazy } from './demoLazy'
@@ -66,7 +67,7 @@ function Bell() {
           <div className="panel-body">
             {loading && <ListSkeleton count={3} />}
             {error && <ErrorState message="Could not load notifications." onRetry={refresh} />}
-            {items && items.length === 0 && <EmptyState icon="bell" title="All quiet">Likes, comments and follows will show up here.</EmptyState>}
+            {items && items.length === 0 && <EmptyState icon="bell" title="All quiet">Reactions, comments, follows and mentions will show up here.</EmptyState>}
             {items && items.length > 0 && <ul>{items.slice(0, 6).map((n) => <NotificationItem key={n.id} n={n} onNavigate={() => setOpen(false)} />)}</ul>}
           </div>
           <Link to="/notifications" className="panel-foot" onClick={() => setOpen(false)}>See all notifications</Link>
@@ -79,7 +80,8 @@ function Bell() {
 export default function Layout() {
   const { user, logout } = useAuth()
   const { theme, toggle } = useTheme()
-  const { unread } = useNotifications()
+  const { unread, unreadDm } = useNotifications()
+  const staff = !!user && isStaff(user.role)
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const main = useRef(null)
@@ -89,6 +91,9 @@ export default function Layout() {
   const userMenu = user && [
     { label: 'Your profile', icon: 'user', onSelect: () => navigate(`/u/${user.username}`) },
     { label: 'Saved posts', icon: 'bookmark', onSelect: () => navigate('/saved') },
+    { label: 'Messages', icon: 'mail', onSelect: () => navigate('/messages') },
+    { label: 'Settings', icon: 'settings', onSelect: () => navigate('/settings') },
+    staff && { label: user.role === 'admin' ? 'Admin tools' : 'Moderation tools', icon: 'shield', onSelect: () => navigate('/admin') },
     { label: 'Log out', icon: 'logout', onSelect: async () => { await logout(); navigate('/') } },
   ]
 
@@ -104,6 +109,12 @@ export default function Layout() {
             <NavLink to="/" end className="navlink"><Icon name="home" /><span>Home</span></NavLink>
             <NavLink to="/explore" className="navlink"><Icon name="sparkles" /><span>Explore</span></NavLink>
             {user && <NavLink to="/saved" className="navlink"><Icon name="bookmark" /><span>Saved</span></NavLink>}
+            {user && (
+              <NavLink to="/messages" className="navlink" aria-label={unreadDm ? `Messages, ${unreadDm} unread` : 'Messages'}>
+                <span className="tab-ico"><Icon name="mail" />{unreadDm > 0 && <span className="badge" aria-hidden="true">{unreadDm > 9 ? '9+' : unreadDm}</span>}</span><span>Messages</span>
+              </NavLink>
+            )}
+            {staff && <NavLink to="/admin" className="navlink"><Icon name="shield" /><span>{user.role === 'admin' ? 'Admin' : 'Moderate'}</span></NavLink>}
           </nav>
           <div className="topbar-end">
             <button type="button" className="icon-btn" onClick={toggle} aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
@@ -133,16 +144,21 @@ export default function Layout() {
       <nav className="tabbar" aria-label="Mobile">
         <NavLink to="/" end className="tab"><Icon name="home" /><span>Home</span></NavLink>
         <NavLink to="/explore" className="tab"><Icon name="sparkles" /><span>Explore</span></NavLink>
-        <NavLink to="/search" className="tab"><Icon name="search" /><span>Search</span></NavLink>
         {user ? (
           <>
+            <NavLink to="/messages" className="tab">
+              <span className="tab-ico"><Icon name="mail" />{unreadDm > 0 && <span className="badge" aria-hidden="true">{unreadDm > 9 ? '9+' : unreadDm}</span>}</span><span>Messages</span>
+            </NavLink>
             <NavLink to="/notifications" className="tab">
               <span className="tab-ico"><Icon name="bell" />{unread > 0 && <span className="badge" aria-hidden="true">{unread > 9 ? '9+' : unread}</span>}</span><span>Alerts</span>
             </NavLink>
             <NavLink to={`/u/${user.username}`} className="tab"><Avatar user={user} size={22} /><span>Me</span></NavLink>
           </>
         ) : (
-          <NavLink to="/login" className="tab"><Icon name="user" /><span>Log in</span></NavLink>
+          <>
+            <NavLink to="/search" className="tab"><Icon name="search" /><span>Search</span></NavLink>
+            <NavLink to="/login" className="tab"><Icon name="user" /><span>Log in</span></NavLink>
+          </>
         )}
       </nav>
     </div>

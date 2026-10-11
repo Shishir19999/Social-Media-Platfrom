@@ -14,7 +14,9 @@ const users = [
     ['admin', 'admin@example.com'],
     ['user', 'user@example.com'],
     ['alice', 'alice@example.com'],
+    ['mod', 'mod@example.com'],
 ];
+const ROLES = { admin: 'admin', mod: 'moderator' }; // everyone else is a regular user
 
 (async () => {
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/socialMediaDB');
@@ -22,6 +24,7 @@ const users = [
     for (const [username, email] of users) {
         let u = await User.findOne({ email });
         if (!u) u = await User.create({ username, email, password: PASSWORD }); // hashed by model hook
+        if (ROLES[username] && u.role !== ROLES[username]) { u.role = ROLES[username]; await u.save(); }
         byName[username] = u;
     }
     const posts = [
@@ -64,10 +67,10 @@ const users = [
             author: faker.helpers.arrayElement(all)._id,
             date: faker.date.between({ from: created, to: REF }),
         }));
-        ops.push({ updateOne: { filter: { author: author._id, title }, update: { $set: { content, likes: likers, comments, createdAt: created, updatedAt: created } }, upsert: true, timestamps: false } });
+        ops.push({ updateOne: { filter: { author: author._id, title }, update: { $set: { content, likes: likers, comments, createdAt: created, updatedAt: created, visibleAt: created } }, upsert: true, timestamps: false } });
     }
     await Post.bulkWrite(ops);
     console.log(`Seeded: ${await User.countDocuments()} users, ${await Post.countDocuments()} posts`);
-    console.log(`Demo logins (password ${PASSWORD}): admin@example.com, user@example.com, alice@example.com (or usernames admin/user/alice)`);
+    console.log(`Sample logins (password ${PASSWORD}): admin@example.com (administrator), mod@example.com (moderator), user@example.com, alice@example.com (or the usernames admin/mod/user/alice)`);
     await mongoose.disconnect();
 })().catch((e) => { console.error(e); process.exit(1); });

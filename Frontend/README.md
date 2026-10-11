@@ -1,12 +1,14 @@
-# React + Vite
+# Orbit frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + Vite 8. See the [project README](../README.md) for features, roles, the API and how to run everything.
 
-Currently, two official plugins are available:
+```bash
+npm install
+npm run dev            # real mode: talks to the API at VITE_API_URL (default http://localhost:5000)
+npm run dev:demo       # Live preview: in-browser backend, no server needed
+npm run build:pages    # static Live preview build for GitHub Pages (hash routing, base /Social-Media-Platfrom/)
+npm test               # vitest: Live preview backend, shared rules, helpers
+npm run lint
+```
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Layout: `src/api` (`http.js` real client, `demo/` in-browser backend, `realtime.js` live updates), `src/lib/rules.js` (rules shared with the API, generated from `Backend/lib/rules.js`), `src/components`, `src/pages`, `src/context`, `src/styles/main.css`.

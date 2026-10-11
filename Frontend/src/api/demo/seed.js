@@ -2,11 +2,14 @@
 // so the feed always looks fresh. Images are procedural "art:" references (see art.js).
 import { extractHashtags, extractMentions } from '../../lib/richtext'
 import { hashString } from '../../lib/format'
+import { DEFAULT_NOTIFICATION_PREFS } from '../../lib/rules'
 
 export const DEMO_PASSWORD = 'Password123!'
 export const DEMO_LOGINS = [
   { username: 'alice', name: 'Alice Morgan', note: 'follows several people, has notifications and saved posts' },
   { username: 'marcus', name: 'Marcus Reyes', note: 'designer with followers and replies' },
+  { username: 'mod', name: 'Milo Moderator', note: 'moderator: reports queue, hide or remove posts, suspend people' },
+  { username: 'admin', name: 'Ada Admin', note: 'administrator: all of that plus bans, roles and the audit log' },
 ]
 
 const MIN = 60 * 1000
@@ -26,7 +29,14 @@ const USERS = [
   ['hannah', 'Hannah Fischer', 'Plant parent and urban gardener.'],
   ['omar', 'Omar Haddad', 'Cyclist, commuter and part-time bike mechanic.'],
   ['lena', 'Lena Kowalski', 'Travel writer. Thirty-one countries and counting.'],
+  ['mod', 'Milo Moderator', 'Keeping Orbit friendly. Moderator.'],
+  ['admin', 'Ada Admin', 'Keeping the lights on. Administrator.'],
+  ['bargainbot', 'Bargain Bot', 'Best deals. Click now.'],
 ]
+
+const ROLE_OF = { mod: 'moderator', admin: 'admin' }
+const PRIVATE = new Set(['hannah', 'nora'])
+const SYSTEM = new Set(['mod', 'admin', 'bargainbot'])
 
 // [author, age in minutes, text, images (art refs), comments]
 // comment: [author, text, replies?: [[author, text], ...]]
@@ -156,6 +166,8 @@ const FOLLOWS = {
   lena: ['tom', 'alice', 'nora', 'marcus'],
 }
 
+const pickReaction = (r) => (r < 0.78 ? 'like' : r < 0.88 ? 'celebrate' : r < 0.94 ? 'laugh' : r < 0.97 ? 'wow' : 'sad')
+
 function rng(seed) {
   let a = seed >>> 0
   return () => {
@@ -167,7 +179,7 @@ function rng(seed) {
   }
 }
 
-export const STATE_VERSION = 1
+export const STATE_VERSION = 2
 
 export function buildSeed(now = Date.now()) {
   const rand = rng(20261007)
@@ -182,7 +194,17 @@ export function buildSeed(now = Date.now()) {
     avatar: null,
     cover: `art:${['hills', 'peaks', 'waves', 'dunes', 'forest', 'night', 'city'][i % 7]}:${300 + i}:1200x400`,
     createdAt: now - (400 - i * 17) * DAY,
+    role: ROLE_OF[username] || 'user',
+    status: 'active',
+    suspendedUntil: null,
+    statusReason: '',
+    isPrivate: PRIVATE.has(username),
     following: [],
+    followRequests: [],
+    blocked: [],
+    muted: [],
+    notifPrefs: { ...DEFAULT_NOTIFICATION_PREFS },
+    pinnedPostId: null,
     bookmarks: [],
     hidden: [],
   }))
@@ -192,7 +214,7 @@ export function buildSeed(now = Date.now()) {
   let cn = 0
   const posts = POSTS.map(([author, age, text, images, comments], i) => {
     const createdAt = now - age * MIN
-    const likers = users.filter((u) => u.username !== author && rand() < (0.2 + (i % 5) * 0.08)).map((u) => u.id)
+    const likers = users.filter((u) => !SYSTEM.has(u.username) && u.username !== author && rand() < (0.2 + (i % 5) * 0.08)).map((u) => u.id)
     const built = []
     const addComment = (authorName, body, parentId, minutesAfter) => {
       const c = {
@@ -224,7 +246,14 @@ export function buildSeed(now = Date.now()) {
       hashtags: extractHashtags(text),
       createdAt,
       editedAt: null,
-      likes: likers,
+      reactions: Object.fromEntries(likers.map((uid) => [uid, pickReaction(rand())])),
+      poll: null,
+      repostOf: null,
+      status: 'published',
+      visibleAt: createdAt,
+      editHistory: [],
+      modState: 'ok',
+      modNote: '',
       comments: built,
     }
   })
@@ -240,7 +269,7 @@ export function buildSeed(now = Date.now()) {
   }
   const clip = (t) => (t.length > 80 ? `${t.slice(0, 79)}…` : t)
   for (const p of posts) {
-    for (const [k, uid] of p.likes.entries()) addNote(p.authorId, uid, 'like', p.id, clip(p.text), p.createdAt + (k + 1) * 17 * MIN)
+    for (const [k, [uid, type]] of Object.entries(p.reactions).entries()) addNote(p.authorId, uid, type === 'like' ? 'like' : 'reaction', p.id, clip(p.text), p.createdAt + (k + 1) * 17 * MIN)
     for (const c of p.comments) {
       const parent = c.parentId && p.comments.find((x) => x.id === c.parentId)
       addNote(parent ? parent.authorId : p.authorId, c.authorId, parent ? 'reply' : 'comment', p.id, clip(c.text), c.createdAt)
@@ -254,7 +283,97 @@ export function buildSeed(now = Date.now()) {
       if (byName[name]) addNote(byName[name].id, p.authorId, 'mention', p.id, clip(p.text), p.createdAt + 20 * MIN)
     }
   }
+  // ---- extras: polls, quotes, reposts, a pinned post, edit history, drafts, moderation and messages ----
+  const uid = (name) => byName[name].id
+  const extra = (authorName, ageMin, text, images = []) => {
+    const createdAt = now - ageMin * MIN
+    const p = {
+      id: id('p', posts.length + 1), authorId: uid(authorName), title: '', text, images, hashtags: extractHashtags(text),
+      createdAt, editedAt: null, reactions: {}, comments: [], poll: null, repostOf: null, status: 'published',
+      visibleAt: createdAt, editHistory: [], modState: 'ok', modNote: '',
+    }
+    posts.push(p)
+    return p
+  }
+  const react = (p, names, type = 'like') => names.forEach((n) => { p.reactions[uid(n)] = type })
+
+  const open = extra('marcus', 50, 'Quick poll for the design folks: when do you do your best work? #design #poll')
+  open.poll = { endsAt: now + 2 * DAY, options: [
+    { id: 'po1', text: 'Early morning', votes: [uid('priya'), uid('hannah'), uid('omar')] },
+    { id: 'po2', text: 'Late evening', votes: [uid('sofia'), uid('diego')] },
+    { id: 'po3', text: 'Right after coffee', votes: [uid('tom'), uid('chen'), uid('nora'), uid('lena')] },
+  ] }
+  react(open, ['sofia', 'tom'])
+
+  const closed = extra('chen', 3000, 'Which chart type do you trust least? The results are in. #dataviz #poll')
+  closed.poll = { endsAt: now - HOUR, options: [
+    { id: 'pc1', text: 'Pie charts', votes: [uid('marcus'), uid('priya'), uid('jamal'), uid('nora')] },
+    { id: 'pc2', text: '3D bar charts', votes: [uid('tom'), uid('diego'), uid('omar'), uid('lena'), uid('hannah'), uid('sofia')] },
+    { id: 'pc3', text: 'Dual-axis lines', votes: [uid('alice')] },
+  ] }
+
+  const linked = extra('marcus', 95, 'Great read on spacing and rhythm in type: https://example.com/articles/kerning-for-beginners #typography')
+  react(linked, ['alice', 'sofia', 'priya'], 'celebrate')
+
+  const quote = extra('priya', 100, 'This is exactly why I carry a tripod everywhere. #photography')
+  quote.repostOf = posts[2].id
+  react(quote, ['tom', 'alice'])
+  const repost = extra('sofia', 130, '')
+  repost.repostOf = posts[0].id
+  addNote(uid('tom'), uid('priya'), 'quote', quote.id, clip(quote.text), now - 100 * MIN)
+  addNote(uid('alice'), uid('sofia'), 'repost', repost.id, '', now - 130 * MIN)
+
+  // an edited post keeps its earlier wording
+  posts[0].editedAt = now - 20 * MIN
+  posts[0].editHistory = [{ text: 'First clear night in two weeks, so the telescope finally came out. Jupiter was lovely.', at: posts[0].createdAt }]
+  byName.tom.pinnedPostId = posts[2].id
+
+  // alice's drafts and scheduled posts
+  const draft = extra('alice', 15, 'Draft: notes on a beginner-friendly stargazing checklist. #astronomy')
+  draft.status = 'draft'
+  draft.visibleAt = null
+  const scheduled = extra('alice', 5, 'Scheduled: the Orionids peak tonight, blankets out! #astronomy #meteors')
+  scheduled.status = 'scheduled'
+  scheduled.visibleAt = now + 3 * HOUR
+
+  // a spam account with open reports, a hidden post and the staff actions around them
+  const spam = extra('bargainbot', 200, 'LIMITED OFFER!!! Cheap designer watches, 90% off. Click https://example.com/deals/cheap-watches now #deals')
+  const spam2 = extra('bargainbot', 900, 'Win a free phone!!! Reply with your address and card number. #giveaway')
+  spam2.modState = 'hidden'
+  spam2.modNote = 'Scam'
+  const reports = [
+    ['priya', 'Spam or scam'], ['chen', 'Spam or scam'], ['omar', 'Misleading information'],
+  ].map(([name, reason], k) => ({ postId: spam.id, userId: uid(name), reason, status: 'open', createdAt: now - (150 - k * 20) * MIN }))
+  reports.push({ postId: spam2.id, userId: uid('nora'), reason: 'Spam or scam', status: 'resolved', createdAt: now - DAY - HOUR, resolvedBy: uid('mod'), resolution: 'Post hidden', resolvedAt: now - DAY })
+  byName.bargainbot.status = 'suspended'
+  byName.bargainbot.suspendedUntil = now + 6 * DAY
+  byName.bargainbot.statusReason = 'Posting scams'
+  const audit = [
+    { id: id('a', 1), actorId: uid('mod'), action: 'report.hide', targetType: 'post', targetId: spam2.id, targetLabel: clip(spam2.text), note: 'Scam', createdAt: now - DAY },
+    { id: id('a', 2), actorId: uid('mod'), action: 'user.suspend', targetType: 'user', targetId: byName.bargainbot.id, targetLabel: '@bargainbot', note: 'Posting scams', createdAt: now - DAY + 5 * MIN },
+  ].sort((a, b) => b.createdAt - a.createdAt)
+
+  // two conversations; alice has an unread message from marcus
+  const conversation = (a, b, items, reads) => ({
+    id: id('m', hashString(a + b) % 900),
+    key: [uid(a), uid(b)].sort().join(':'),
+    participants: [uid(a), uid(b)],
+    messages: items.map(([from, text, ageMin], k) => ({ id: `${id('x', k + 1)}${a}${b}`, senderId: uid(from), text, createdAt: now - ageMin * MIN })),
+    reads: Object.fromEntries(Object.entries(reads).map(([n, ageMin]) => [uid(n), now - ageMin * MIN])),
+  })
+  const conversations = [
+    conversation('alice', 'marcus', [
+      ['marcus', 'Hey Alice, loved the telescope shot. Which lens did you use?', 95],
+      ['alice', 'Thanks! Just a phone held against the eyepiece, honestly.', 80],
+      ['marcus', 'Ha, that is impressive. Would you share a tip or two?', 12],
+    ], { alice: 85, marcus: 10 }),
+    conversation('alice', 'tom', [
+      ['tom', 'Planning a Lauterbrunnen trip in spring. Want to join?', 300],
+      ['alice', 'Count me in. Send dates when you have them.', 290],
+    ], { alice: 280, tom: 200 }),
+  ]
+
   notifications.sort((a, b) => b.createdAt - a.createdAt)
 
-  return { version: STATE_VERSION, seededAt: now, users, posts, notifications, reports: [] }
+  return { version: STATE_VERSION, seededAt: now, users, posts, notifications, reports, conversations, audit }
 }

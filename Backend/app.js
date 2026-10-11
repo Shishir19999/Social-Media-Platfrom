@@ -7,11 +7,16 @@ const fs = require('fs');
 const crypto = require('crypto');
 const Post = require('./models/Post');
 const User = require('./models/User');
-const { auth, optionalAuth, signToken } = require('./middleware/auth');
+const { auth, optionalAuth, signToken, requireRole } = require('./middleware/auth');
+const { LIMITS, POLL_DURATIONS, validateUsername, validateEmail, validatePassword, validatePost } = require('./lib/rules');
+const { onPublished, liveFilter, excludedAuthors, relation } = require('./lib/posts');
+const Report = require('./models/Report');
 const { extractHashtags } = require('./lib/text');
 const { notify, notifyMentions } = require('./lib/notify');
 const { media } = require('./lib/serialize');
 const createSocialRoutes = require('./routes/social');
+const createMessageRoutes = require('./routes/messages');
+const createAdminRoutes = require('./routes/admin');
 
 // Allowed uploads: mimetype -> extension. The extension on disk never comes from the client filename.
 const FILE_TYPES = {
@@ -46,6 +51,9 @@ const publicUser = (u) => ({
     email: u.email,
     displayName: u.displayName || u.username,
     avatar: media(u.avatar),
+    role: u.role || 'user',
+    status: u.status || 'active',
+    isPrivate: !!u.isPrivate,
 });
 
 function createApp() {
@@ -149,15 +157,8 @@ function createApp() {
             if (typeof username !== 'string' || typeof email !== 'string' || typeof password !== 'string') {
                 return res.status(400).json({ error: 'Invalid input' });
             }
-            if (username.trim().length < 3) {
-                return res.status(400).json({ error: 'Username must be at least 3 characters' });
-            }
-            if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
-                return res.status(400).json({ error: 'Invalid email address' });
-            }
-            if (password.length < 6) {
-                return res.status(400).json({ error: 'Password must be at least 6 characters' });
-            }
+            const problem = validateUsername(username) || validateEmail(email) || validatePassword(password);
+            if (problem) return res.status(400).json({ error: problem.replace(/\.$/, '') });
             const exists = await User.findOne({ $or: [{ username: username.trim() }, { email: email.trim().toLowerCase() }] });
             if (exists) {
                 return res.status(409).json({ error: 'Username or email already in use' });
@@ -181,6 +182,9 @@ function createApp() {
             const user = await User.findOne({ $or: [{ email: id.trim().toLowerCase() }, { username: id.trim() }] }).select('+password');
             if (!user || !(await user.comparePassword(password))) {
                 return res.status(401).json({ error: 'Invalid credentials' });
+            }
+            if (user.status === 'banned') {
+                return res.status(403).json({ error: `This account has been banned.${user.statusReason ? ` Reason: ${user.statusReason}` : ''}` });
             }
             res.json({ token: signToken(user), user: publicUser(user) });
         } catch (error) {
@@ -215,9 +219,11 @@ function createApp() {
         try {
             const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
             const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 50);
+            // public listing: published posts of public accounts only
+            const visible = { ...liveFilter(), author: { $nin: await excludedAuthors(null) } };
             const [posts, total] = await Promise.all([
-                Post.find().sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).populate(POPULATE),
-                Post.countDocuments(),
+                Post.find(visible).sort({ visibleAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).populate(POPULATE),
+                Post.countDocuments(visible),
             ]);
             res.json({ posts, page, limit, total, pages: Math.max(Math.ceil(total / limit), 1) });
         } catch (error) {
@@ -230,25 +236,43 @@ function createApp() {
         const file = req.file ? req.file.filename : undefined;
         const images = ((req.files && req.files.images) || []).map((f) => f.filename);
         const removeAll = () => [file, ...images].forEach(removeUpload);
+        const bad = (error) => { removeAll(); return res.status(400).json({ error }); };
         try {
-            const { title, content } = req.body || {};
-
+            const body = req.body || {};
+            const { title } = body;
+            const content = body.content === undefined ? '' : body.content;
             const titleBad = title !== undefined && (typeof title !== 'string' || !title.trim());
-            if (titleBad || typeof content !== 'string' || !content.trim()) {
-                removeAll();
-                return res.status(400).json({ error: 'Content is required, and the title cannot be blank' });
+            if (titleBad || typeof content !== 'string') return bad('Content is required, and the title cannot be blank');
+            if ((title || '').length > 120) return bad('The title is limited to 120 characters');
+
+            let poll;
+            if (body.poll) {
+                try { poll = typeof body.poll === 'string' ? JSON.parse(body.poll) : body.poll; } catch { return bad('Invalid poll'); }
             }
-            if (content.length > 2000 || (title || '').length > 120) {
-                removeAll();
-                return res.status(400).json({ error: 'Content is limited to 2000 characters and the title to 120' });
+            const status = ['draft', 'scheduled'].includes(body.status) ? body.status : 'published';
+            const scheduleAt = body.scheduleAt ? new Date(body.scheduleAt).getTime() : undefined;
+            const problem = validatePost({ text: content, poll, images: images.length + (file ? 1 : 0), scheduleAt, status });
+            if (problem) return bad(problem.replace(/\.$/, ''));
+
+            let repostOf;
+            if (body.quoteOf) {
+                if (!content.trim()) return bad('Add your comment to quote a post');
+                const original = mongoose.Types.ObjectId.isValid(body.quoteOf) && await Post.findOne({ _id: body.quoteOf, ...liveFilter() }).select('repostOf content');
+                if (!original) return bad('The post you are quoting is not available');
+                repostOf = original.repostOf && !original.content ? original.repostOf : original._id;
             }
 
             const post = new Post({
-                title: title || '', content, file, images, author: req.user.id,
+                title: title || '', content: content.trim(), file, images, author: req.user.id, status, repostOf,
                 hashtags: extractHashtags(`${title || ''} ${content}`),
+                visibleAt: status === 'scheduled' ? new Date(scheduleAt) : (status === 'published' ? new Date() : undefined),
+                poll: poll ? {
+                    options: poll.options.map((o) => ({ text: String(o).trim(), votes: [] })).filter((o) => o.text),
+                    endsAt: new Date(Date.now() + POLL_DURATIONS[poll.duration] * 60000),
+                } : undefined,
             });
             await post.save();
-            await notifyMentions(content, req.user.id, post);
+            if (status === 'published') await onPublished(post);
             await post.populate(POPULATE);
             res.status(201).json(post);
         } catch (error) {
@@ -276,11 +300,14 @@ function createApp() {
             }
             if (content !== undefined) {
                 if (typeof content !== 'string' || !content.trim()) { removeUpload(newFile); return res.status(400).json({ error: 'Content cannot be empty' }); }
+                if (content.length > LIMITS.post) { removeUpload(newFile); return res.status(400).json({ error: `Posts are limited to ${LIMITS.post} characters` }); }
+                // keep the previous wording so the edit history can show it
+                if (content !== post.content && post.status !== 'draft') post.editHistory.push({ text: post.content, at: post.editedAt || post.createdAt });
                 post.content = content;
             }
             if (title !== undefined || content !== undefined) {
                 post.hashtags = extractHashtags(`${post.title || ''} ${post.content}`);
-                post.editedAt = new Date();
+                if (post.status !== 'draft') post.editedAt = new Date();
             }
             let oldFile;
             if (newFile) { oldFile = post.file; post.file = newFile; }
@@ -304,6 +331,8 @@ function createApp() {
                 return res.status(403).json({ error: 'You can only delete your own posts' });
             }
             await post.deleteOne();
+            await Report.deleteMany({ post: post._id });
+            await User.updateMany({ pinnedPost: post._id }, { $unset: { pinnedPost: 1 } });
             removeUpload(post.file);
             (post.images || []).forEach(removeUpload);
             res.json({ message: 'Post deleted' });
@@ -313,15 +342,26 @@ function createApp() {
         }
     });
 
+    // Legacy like/comment routes: the post must be live and its author visible to the caller.
+    const canTouch = async (post, userId) => {
+        if (post.status === 'draft' || post.modState !== 'ok') return false;
+        const [author, viewer] = await Promise.all([
+            User.findById(post.author).select('isPrivate blocked').lean(),
+            User.findById(userId).select('following blocked role').lean(),
+        ]);
+        return !relation(viewer, author);
+    };
+
     // Toggle like for the current user (likes is a per-user set)
     app.post('/api/posts/like/:postId', auth, async (req, res) => {
         try {
             if (!isValidId(req.params.postId)) return res.status(404).json({ error: 'Post not found' });
             const post = await Post.findById(req.params.postId);
-            if (!post) return res.status(404).json({ error: 'Post not found' });
+            if (!post || !(await canTouch(post, req.user.id))) return res.status(404).json({ error: 'Post not found' });
 
             const idx = post.likes.findIndex((u) => u.toString() === req.user.id);
-            if (idx === -1) post.likes.push(req.user.id);
+            post.reactions = post.reactions.filter((r) => String(r.user) !== req.user.id);
+            if (idx === -1) { post.likes.push(req.user.id); post.reactions.push({ user: req.user.id, type: 'like' }); }
             else post.likes.splice(idx, 1);
             await post.save();
             if (idx === -1) await notify(post.author, req.user.id, 'like', post, post.content);
@@ -339,7 +379,7 @@ function createApp() {
             const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
             if (!text) return res.status(400).json({ error: 'Comment text is required' });
             const post = await Post.findById(req.params.postId);
-            if (!post) return res.status(404).json({ error: 'Post not found' });
+            if (!post || !(await canTouch(post, req.user.id))) return res.status(404).json({ error: 'Post not found' });
 
             post.comments.push({ text, author: req.user.id });
             await post.save();
@@ -353,6 +393,8 @@ function createApp() {
     });
 
     // ---- Profiles, follows, feeds, comments threads, notifications, search ----
+    app.use('/api/messages', createMessageRoutes({ auth }));
+    app.use('/api/mod', createAdminRoutes({ auth, requireRole }));
     app.use('/api', createSocialRoutes({ auth, optionalAuth, uploadPostFiles, uploadProfileFiles, removeUpload, filesOf }));
 
     // Error handler (multer errors such as file too large / invalid type)

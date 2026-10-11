@@ -1,31 +1,14 @@
-// Inline form validation shared by the login and register forms (mirrors the server rules).
-export function validateUsername(v) {
-  const s = v.trim()
-  if (!s) return 'Choose a username.'
-  if (s.length < 3) return 'Username must be at least 3 characters.'
-  if (s.length > 30) return 'Username must be at most 30 characters.'
-  if (!/^[A-Za-z0-9_]+$/.test(s)) return 'Use letters, numbers and underscores only.'
-  return ''
-}
+// Form validation and limits: thin re-exports of the rules shared with the API (see ./rules.js).
+import { LIMITS, validateEmail, validatePassword, validateUsername } from './rules'
 
-export function validateEmail(v) {
-  const s = v.trim()
-  if (!s) return 'Enter your email address.'
-  if (!/^\S+@\S+\.\S+$/.test(s)) return 'Enter a valid email address.'
-  return ''
-}
+export { validateEmail, validatePassword, validateUsername }
 
-export function validatePassword(v) {
-  if (!v) return 'Enter a password.'
-  if (v.length < 6) return 'Password must be at least 6 characters.'
-  return ''
-}
-
-export const POST_LIMIT = 500
-export const COMMENT_LIMIT = 500
-export const BIO_LIMIT = 280
-export const MAX_IMAGES = 6
-export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+export const POST_LIMIT = LIMITS.post
+export const COMMENT_LIMIT = LIMITS.comment
+export const BIO_LIMIT = LIMITS.bio
+export const MESSAGE_LIMIT = LIMITS.message
+export const MAX_IMAGES = LIMITS.images
+export const MAX_IMAGE_BYTES = LIMITS.imageBytes
 export const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 /** Returns an error message for a picked image file, or '' when it is acceptable. */
