@@ -14,6 +14,9 @@ import Home from './pages/Home'
 import { NotFound, NotificationsPage, PostPage, RequireAuth, SavedPage, SearchPage, TagPage } from './pages/Simple'
 
 const Profile = lazy(() => import('./pages/Profile'))
+const Messages = lazy(() => import('./pages/Messages'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Admin = lazy(() => import('./pages/Admin'))
 const Router = DEMO ? HashRouter : BrowserRouter
 
 export default function App() {
@@ -37,6 +40,11 @@ export default function App() {
                       <Route path="search" element={<SearchPage />} />
                       <Route path="saved" element={<RequireAuth><SavedPage /></RequireAuth>} />
                       <Route path="notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
+                      <Route path="messages" element={<RequireAuth><Messages /></RequireAuth>} />
+                      <Route path="messages/:username" element={<RequireAuth><Messages /></RequireAuth>} />
+                      <Route path="settings" element={<RequireAuth><Settings /></RequireAuth>} />
+                      <Route path="admin" element={<RequireAuth><Admin /></RequireAuth>} />
+                      <Route path="admin/:tab" element={<RequireAuth><Admin /></RequireAuth>} />
                       <Route path="*" element={<NotFound />} />
                     </Route>
                   </Routes>

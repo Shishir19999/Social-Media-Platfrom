@@ -1,16 +1,25 @@
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { extractMentions, snippet } = require('./text');
+const { PREF_FOR_TYPE } = require('./rules');
+const { emitToUser } = require('./realtime');
 
-// Creates a notification for `userId` unless the actor is the recipient.
-// Likes/follows are de-duplicated while the earlier one is still unread.
+const DEDUPED = ['like', 'reaction', 'follow', 'request', 'repost'];
+
+// Creates a notification for `userId` unless the actor is the recipient, the recipient blocked the actor
+// or switched that kind of notification off. Likes, follows and reposts are de-duplicated while the
+// earlier one is still unread.
 async function notify(userId, actorId, type, post, text) {
     if (!userId || String(userId) === String(actorId)) return;
+    const recipient = await User.findById(userId).select('notifPrefs blocked').lean();
+    if (!recipient) return;
+    if ((recipient.blocked || []).some((b) => String(b) === String(actorId))) return;
+    const pref = PREF_FOR_TYPE[type];
+    if (pref && recipient.notifPrefs && recipient.notifPrefs[pref] === false) return;
     const base = { user: userId, actor: actorId, type, ...(post ? { post: post._id || post } : {}) };
-    if (type === 'like' || type === 'follow') {
-        if (await Notification.exists({ ...base, read: false })) return;
-    }
-    await Notification.create({ ...base, snippet: snippet(text) });
+    if (DEDUPED.includes(type) && await Notification.exists({ ...base, read: false })) return;
+    const created = await Notification.create({ ...base, snippet: snippet(text) });
+    emitToUser(userId, 'notification:new', { id: String(created._id), type });
 }
 
 // Notifies existing users mentioned (@username) in `text`.

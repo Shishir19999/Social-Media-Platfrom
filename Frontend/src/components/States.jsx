@@ -4,7 +4,7 @@ export function EmptyState({ icon = 'sparkles', title, children, action }) {
   return (
     <div className="state state-empty">
       <span className="state-icon"><Icon name={icon} size={28} /></span>
-      <h3 className="state-title">{title}</h3>
+      <h2 className="state-title">{title}</h2>
       {children && <p className="state-text">{children}</p>}
       {action}
     </div>
@@ -15,7 +15,7 @@ export function ErrorState({ message = 'Something went wrong.', onRetry }) {
   return (
     <div className="state state-error" role="alert">
       <span className="state-icon"><Icon name="alert" size={28} /></span>
-      <h3 className="state-title">{message}</h3>
+      <h2 className="state-title">{message}</h2>
       <p className="state-text">Check your connection and try again.</p>
       {onRetry && (
         <button type="button" className="btn btn-secondary" onClick={onRetry}>

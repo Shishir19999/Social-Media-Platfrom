@@ -5,7 +5,7 @@ import Icon from './Icon'
  * Small action menu (kebab button). items: [{label, icon, onSelect, danger}] ; falsy entries are skipped.
  * Keyboard: Enter/Space/ArrowDown opens, arrows move, Home/End jump, Esc closes and returns focus.
  */
-export default function Menu({ label, items, icon = 'more', align = 'right' }) {
+export default function Menu({ label, items, icon = 'more', align = 'right', buttonClass = 'icon-btn', count = null, pressed }) {
   const [open, setOpen] = useState(false)
   const wrap = useRef(null)
   const btn = useRef(null)
@@ -36,14 +36,16 @@ export default function Menu({ label, items, icon = 'more', align = 'right' }) {
       <button
         ref={btn}
         type="button"
-        className="icon-btn"
+        className={buttonClass}
         aria-label={label}
+        aria-pressed={pressed}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         onClick={() => setOpen((o) => !o)}
       >
         <Icon name={icon} />
+        {count !== null && <span>{count}</span>}
       </button>
       {open && (
         <div className={`menu-list menu-${align}`} id={id} role="menu" aria-label={label}>

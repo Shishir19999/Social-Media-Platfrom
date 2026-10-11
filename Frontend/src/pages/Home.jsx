@@ -9,9 +9,12 @@ import { EmptyState } from '../components/States'
 import { Suggestions, TrendingList } from '../components/Sidebar'
 
 const FEATURES = [
-  ['image', 'Share photos and thoughts', 'Post up to six images at once, with a draft that saves itself while you write.'],
-  ['users', 'Follow people you like', 'Your Following feed keeps close friends in view; Explore shows everyone.'],
-  ['hash', 'Join the conversation', 'Clickable #hashtags and @mentions, threaded replies and trending topics.'],
+  ['image', 'Share photos and thoughts', 'Post up to six images, polls and links, schedule posts for later and keep drafts.'],
+  ['users', 'Follow people you like', 'Your Following feed keeps close friends in view; private accounts approve who follows them.'],
+  ['hash', 'Join the conversation', 'Clickable #hashtags and @mentions with autocomplete, threaded replies and trending topics.'],
+  ['smile', 'React your way', 'Five reactions, reposts and quote posts, so you can respond the way you mean it.'],
+  ['mail', 'Talk in private', 'Direct messages that arrive instantly, with typing hints and read receipts.'],
+  ['shield', 'Safe by design', 'Block, mute and report. Moderators review reports and every decision is logged.'],
 ]
 
 function Landing() {
@@ -23,7 +26,7 @@ function Landing() {
         <div className="hero-in">
           <Reveal as="p" className="eyebrow">A small, friendly social network</Reveal>
           <Reveal as="h1" id="hero-title" delay={80}>Share moments. Follow people. Join the conversation.</Reveal>
-          <Reveal as="p" className="hero-lead" delay={160}>Orbit brings photos, hashtags and threaded comments together in one calm, fast place.</Reveal>
+          <Reveal as="p" className="hero-lead" delay={160}>Orbit brings photos, polls, messages and threaded conversations together in one calm, fast place.</Reveal>
           <Reveal className="hero-cta" delay={240}>
             <Link to="/register" className="btn btn-primary btn-lg-inline">Create an account</Link>
             <Link to="/explore" className="btn btn-secondary btn-lg-inline">Browse Explore</Link>

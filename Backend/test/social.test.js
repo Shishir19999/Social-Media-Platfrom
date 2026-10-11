@@ -1,5 +1,5 @@
 // Social features: profiles, follows, feeds, hashtags, threads, bookmarks, notifications, search.
-// Runs against a throwaway database (social_test_social_<pid>) and a temp uploads dir; both are removed afterwards.
+// Runs against a throwaway database (sm_test_social_<pid>) and a temp uploads dir; both are removed afterwards.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -21,7 +21,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF\n');
 
 before(async () => {
-  await mongoose.connect(`${BASE}/social_test_social_${process.pid}`);
+  await mongoose.connect(`${BASE}/sm_test_social_${process.pid}`);
   await mongoose.connection.dropDatabase();
   await User.syncIndexes();
 });

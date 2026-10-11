@@ -19,6 +19,15 @@ export function timeAgo(date, now = Date.now()) {
   return 'now'
 }
 
+/** "2d", "3h", "12m" until a future date ("0m" once it has passed). */
+export function timeUntil(date, now = Date.now()) {
+  const secs = Math.max(0, Math.floor((new Date(date).getTime() - now) / 1000))
+  for (const [label, size] of UNITS) {
+    if (secs >= size) return `${Math.floor(secs / size)}${label}`
+  }
+  return '0m'
+}
+
 export function fullDate(date) {
   return new Date(date).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }

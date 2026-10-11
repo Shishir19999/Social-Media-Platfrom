@@ -6,9 +6,12 @@ import { useAsync } from '../hooks/useAsync'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import { buildTree } from '../lib/tree'
 import { COMMENT_LIMIT } from '../lib/validate'
+import { isStaff } from '../lib/rules'
 import { timeAgo, fullDate } from '../lib/format'
 import Avatar from './Avatar'
 import Icon from './Icon'
+import MentionTextarea from './MentionTextarea'
+import { RoleBadge } from './PostParts'
 import RichText from './RichText'
 import { EmptyState, ErrorState, ListSkeleton } from './States'
 
@@ -43,14 +46,14 @@ function CommentForm({ postId, parentId, autoFocus, placeholder, onAdded, onCanc
       <Avatar user={user} size={32} />
       <div className="grow">
         <label htmlFor={id} className="sr-only">{parentId ? 'Write a reply' : 'Write a comment'}</label>
-        <textarea
+        <MentionTextarea
           id={id}
           rows={2}
           autoFocus={autoFocus}
           value={text}
           placeholder={placeholder}
           aria-invalid={!!error || text.length > COMMENT_LIMIT}
-          onChange={(e) => { setText(e.target.value); setError('') }}
+          onChange={(v) => { setText(v); setError('') }}
         />
         <div className="comment-form-bar">
           <span className="field-error" role="alert">{error}</span>
@@ -68,7 +71,7 @@ function Comment({ node, depth, postId, postAuthorId, onAdded, onLike, onDelete 
   const guard = useRequireAuth()
   const [replying, setReplying] = useState(false)
   const c = node.comment
-  const canDelete = user && (user.id === c.author.id || user.id === postAuthorId)
+  const canDelete = user && (user.id === c.author.id || user.id === postAuthorId || isStaff(user.role))
 
   return (
     <li className="comment" id={`comment-${c.id}`}>
@@ -77,6 +80,7 @@ function Comment({ node, depth, postId, postAuthorId, onAdded, onLike, onDelete 
         <div className="comment-body">
           <div className="comment-meta">
             <Link to={`/u/${c.author.username}`} className="post-name">{c.author.displayName}</Link>
+            <RoleBadge role={c.author.role} />
             <span className="muted">@{c.author.username} · <time dateTime={c.createdAt} title={fullDate(c.createdAt)}>{timeAgo(c.createdAt)}</time></span>
           </div>
           <RichText text={c.text} />

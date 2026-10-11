@@ -6,7 +6,9 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "seed": "node scripts/seed.js",
-    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\""
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "sync-rules": "node scripts/sync-rules.js",
+    "set-role": "node scripts/set-role.js"
   },
   "keywords": [],
   "author": "",
@@ -20,10 +22,12 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.11.0",
     "multer": "^2.4.0",
+    "socket.io": "^4.8.4",
     "uuid": "^14.0.2"
   },
   "devDependencies": {
     "@faker-js/faker": "^10.6.0",
+    "socket.io-client": "^4.8.4",
     "supertest": "^7.3.1"
   },
   "engines": {
